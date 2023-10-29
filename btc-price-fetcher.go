@@ -13,26 +13,32 @@ import (
 )
 
 type CoinData struct {
-	Status struct {
-		Timestamp string `json:"timestamp"`
-	}
 	Data []struct {
-		Name  string `json:"name"`
 		Quote map[string]struct {
 			Price float64 `json:"price"`
 		} `json:"quote"`
 	} `json:"data"`
 }
 
+type BinanceData struct {
+	Price string `json:"price"`
+}
+
 func fetchAndWriteDataToCSV() {
-	// fetch data
-	data, err := fetchData()
+	// fetch data from CoinMarketCap
+	coinData, err := fetchData()
 	if err != nil {
 		fmt.Println("Error fetching data:", err)
 	}
 
+	// fetch data from Binance
+	binanceData, err := fetchBinanceData()
+	if err != nil {
+		fmt.Println("Error fetching binance data:", err)
+	}
+
 	// write the data to a CSV file
-	err = writeDataToCSV(data, "btc_prices.csv")
+	err = writeDataToCSV(coinData, binanceData, "btc_prices.csv")
 	if err != nil {
 		fmt.Println("Error writing data to CSV:", err)
 	}
@@ -75,7 +81,30 @@ func fetchData() (CoinData, error) {
 	return coinData, nil
 }
 
-func writeDataToCSV(data CoinData, filename string) error {
+func fetchBinanceData() (BinanceData, error) {
+	uri := "https://api.binance.com/api/v3/ticker/price?symbol=BTCUSDT"
+
+	client := &http.Client{}
+
+	req, err := http.NewRequest("GET", uri, nil)
+	if err != nil {
+		fmt.Printf("Error: %v", err)
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		fmt.Println("Error sending the request to Binance API", err)
+	}
+
+	respBody, _ := io.ReadAll(resp.Body)
+	var coinData BinanceData
+	err = json.Unmarshal(respBody, &coinData)
+	if err != nil {
+		fmt.Println("Error unmarshalling JSON from Binance API: ", err)
+	}
+	return coinData, nil
+}
+
+func writeDataToCSV(data CoinData, binData BinanceData, filename string) error {
 	file, err := os.OpenFile(filename, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 	if err != nil {
 		fmt.Println("Can't open the file", err)
@@ -86,7 +115,7 @@ func writeDataToCSV(data CoinData, filename string) error {
 	defer writer.Flush()
 
 	// Adding CSV header
-	columnName := []string{"Date", "BTC Price in USD"}
+	columnName := []string{"Date", "CoinMarketCap Price", "Binance Price"}
 	fileInfo, err := file.Stat()
 	if err != nil {
 		fmt.Println("Can't open the file", err)
@@ -100,19 +129,17 @@ func writeDataToCSV(data CoinData, filename string) error {
 		}
 	}
 
-	// convert the timestamp to human readable
-	parsedTime, err := time.Parse(time.RFC3339Nano, data.Status.Timestamp)
-	if err != nil {
-		fmt.Println("Failed to parse timestamp from API response.")
-	}
-
-	shortTime := parsedTime.Format("2006-01-02 15:04")
+	// store local time to use it as output of the script and in the CSV
+	t := time.Now()
+	timenow := t.Format("2006-01-02 3:4:5 pm")
 
 	for _, btc := range data.Data[0].Quote {
 		price := fmt.Sprintf("%.2f", btc.Price)
-		writer.Write([]string{shortTime, fmt.Sprintf("%.2f", btc.Price)})
-		fmt.Println("Date:", shortTime, "BTC Price: $", price)
+		writer.Write([]string{timenow, fmt.Sprintf("%.2f", btc.Price), binData.Price})
+		fmt.Println("Date:", timenow, "BTC Price: $", price)
 	}
+
+	fmt.Println("price of binance:", binData.Price)
 
 	return nil
 }
@@ -122,10 +149,10 @@ func main() {
 	ticker := time.NewTicker(5 * time.Minute)
 
 	// invoke the initial function
-	fetchAndWriteDataToCSV()
-
+	go fetchAndWriteDataToCSV()
+	//
 	// Run script every 5 minutes
 	for range ticker.C {
-		fetchAndWriteDataToCSV()
+		go fetchAndWriteDataToCSV()
 	}
 }
