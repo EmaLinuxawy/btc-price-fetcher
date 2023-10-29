@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"sync"
 	"time"
 )
 
@@ -25,20 +26,46 @@ type BinanceData struct {
 }
 
 func fetchAndWriteDataToCSV() {
+	var wg sync.WaitGroup
+	var coinData CoinData
+	var binanceData BinanceData
+	var coinErr, binanceErr error
+
+	wg.Add(2)
+
 	// fetch data from CoinMarketCap
-	coinData, err := fetchData()
-	if err != nil {
-		fmt.Println("Error fetching data:", err)
-	}
+	go func() {
+		defer wg.Done()
+
+		data, err := fetchData()
+		if err != nil {
+			coinErr = err
+		} else {
+			coinData = data
+		}
+	}()
 
 	// fetch data from Binance
-	binanceData, err := fetchBinanceData()
-	if err != nil {
-		fmt.Println("Error fetching binance data:", err)
-	}
+	go func() {
+		defer wg.Done()
+		data, err := fetchBinanceData()
+		if err != nil {
+			binanceErr = err
+		} else {
+			binanceData = data
+		}
+	}()
 
+	wg.Wait()
+
+	if coinErr != nil {
+		fmt.Println("Error fetching data:", coinErr)
+	}
+	if binanceErr != nil {
+		fmt.Println("Error fetching data:", binanceErr)
+	}
 	// write the data to a CSV file
-	err = writeDataToCSV(coinData, binanceData, "btc_prices.csv")
+	err := writeDataToCSV(coinData, binanceData, "btc_prices.csv")
 	if err != nil {
 		fmt.Println("Error writing data to CSV:", err)
 	}
