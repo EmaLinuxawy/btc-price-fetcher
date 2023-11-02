@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
 	"net/http"
 	"net/url"
 	"os"
@@ -37,32 +36,32 @@ func fetchAndWriteDataToCSV() {
 	go func() {
 		defer wg.Done()
 
-		data, err := fetchData()
-		if err != nil {
-			coinErr = err
+		coinData, coinErr = fetchData()
+		if coinErr != nil {
+			fmt.Printf("Error %v", coinErr)
 		} else {
-			coinData = data
+			return
 		}
 	}()
 
 	// fetch data from Binance
 	go func() {
 		defer wg.Done()
-		data, err := fetchBinanceData()
-		if err != nil {
-			binanceErr = err
+		binanceData, binanceErr = fetchBinanceData()
+		if binanceErr != nil {
+			fmt.Printf("Error %v", binanceErr)
 		} else {
-			binanceData = data
+			return
 		}
 	}()
 
 	wg.Wait()
 
 	if coinErr != nil {
-		fmt.Println("Error fetching data:", coinErr)
+		fmt.Printf("Error fetching data: %s", coinErr.Error())
 	}
 	if binanceErr != nil {
-		fmt.Println("Error fetching data:", binanceErr)
+		fmt.Printf("Error fetching data: %s", binanceErr.Error())
 	}
 	// write the data to a CSV file
 	err := writeDataToCSV(coinData, binanceData, "btc_prices.csv")
@@ -79,8 +78,9 @@ func fetchData() (CoinData, error) {
 	// initiate http GET request againest the url
 	req, err := http.NewRequest("GET", uri, nil)
 	if err != nil {
-		log.Fatalf("Error: %v", err)
-		os.Exit(1)
+		errMsg := fmt.Sprintf("Error creating HTTP request: %v", err)
+		fmt.Println(errMsg)
+		return CoinData{}, fmt.Errorf(errMsg)
 	}
 
 	// set Query Parameters and HTTP Headers
@@ -95,15 +95,18 @@ func fetchData() (CoinData, error) {
 	// sending the HTTP request
 	resp, err := client.Do(req)
 	if err != nil {
-		fmt.Println("Error sending the request to CoinMarketCap!")
-		os.Exit(1)
+		errMsg := fmt.Sprintf("Error sending request to CoinMarketCap %v", err)
+		fmt.Println(errMsg)
+		return CoinData{}, fmt.Errorf(errMsg)
 	}
 
 	respBody, _ := io.ReadAll(resp.Body)
 	var coinData CoinData
 	err = json.Unmarshal(respBody, &coinData)
 	if err != nil {
-		fmt.Println("Error unmarshaling JSON:", err)
+		errMsg := fmt.Sprintf("Error unmarshaling JSON from CoinMarketCap: %v", err)
+		fmt.Println(errMsg)
+		return CoinData{}, fmt.Errorf(errMsg)
 	}
 	return coinData, nil
 }
@@ -115,18 +118,24 @@ func fetchBinanceData() (BinanceData, error) {
 
 	req, err := http.NewRequest("GET", uri, nil)
 	if err != nil {
-		fmt.Printf("Error: %v", err)
+		errMsg := fmt.Sprintf("Error creating HTTP request: %v", err)
+		fmt.Println(errMsg)
+		return BinanceData{}, fmt.Errorf(errMsg)
 	}
 	resp, err := client.Do(req)
 	if err != nil {
-		fmt.Println("Error sending the request to Binance API", err)
+		errMsg := fmt.Sprintf("Error sending HTTP request to BinanceAPI: %v", err)
+		fmt.Println(errMsg)
+		return BinanceData{}, fmt.Errorf(errMsg)
 	}
 
 	respBody, _ := io.ReadAll(resp.Body)
 	var coinData BinanceData
 	err = json.Unmarshal(respBody, &coinData)
 	if err != nil {
-		fmt.Println("Error unmarshalling JSON from Binance API: ", err)
+		errMsg := fmt.Sprintf("Error unmarshalling JSON from BinanceAPI: %v", err)
+		fmt.Println(errMsg)
+		return BinanceData{}, fmt.Errorf(errMsg)
 	}
 	return coinData, nil
 }
@@ -135,6 +144,7 @@ func writeDataToCSV(data CoinData, binData BinanceData, filename string) error {
 	file, err := os.OpenFile(filename, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 	if err != nil {
 		fmt.Println("Can't open the file", err)
+		return err
 	}
 	defer file.Close()
 
@@ -158,12 +168,12 @@ func writeDataToCSV(data CoinData, binData BinanceData, filename string) error {
 
 	// store local time to use it as output of the script and in the CSV
 	t := time.Now()
-	timenow := t.Format("2006-01-02 3:4:5 pm")
+	timeNow := t.Format("2006-01-02 3:4:5 pm")
 
 	for _, btc := range data.Data[0].Quote {
 		price := fmt.Sprintf("%.2f", btc.Price)
-		writer.Write([]string{timenow, fmt.Sprintf("%.2f", btc.Price), binData.Price})
-		fmt.Println("Date:", timenow, "BTC Price: $", price)
+		writer.Write([]string{timeNow, price, binData.Price})
+		fmt.Println("Date:", timeNow, "BTC Price: $", price)
 	}
 
 	fmt.Println("price of binance:", binData.Price)
