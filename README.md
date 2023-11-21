@@ -1,4 +1,8 @@
-# CoinMarketCap and Binance Bitcoin Price Fetcher
+# Bitcoin Price Tracker - CoinMarketCap & Binance
+
+Efficiently track Bitcoin prices with this Go script, fetching real-time data from CoinMarketCap and Binance. Utilizes context for optimized request handling and signal processing for graceful shutdowns. Outputs are conveniently saved to a CSV file, making data tracking and analysis straightforward.
+
+Perfect for cryptocurrency enthusiasts and developers interested in real-time Bitcoin price monitoring and data aggregation.
 
 This Go script allows you to fetch Bitcoin (BTC) prices from both CoinMarketCap and Binance. It uses the CoinMarketCap API token provided as the `COIN_MARKET_CAP_TOKEN` environment variable and accesses the Binance API without a token.
 
