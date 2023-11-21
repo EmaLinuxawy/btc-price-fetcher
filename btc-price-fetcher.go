@@ -10,6 +10,7 @@ import (
 	"net/url"
 	"os"
 	"os/signal"
+	"strconv"
 	"sync"
 	"syscall"
 	"time"
@@ -27,18 +28,23 @@ type BinanceData struct {
 	Price string `json:"price"`
 }
 
+// Global HTTP client to reuse for all HTTP requests.
+var httpClient = &http.Client{}
+
+// fetchData retrieves data from CoinMarketCap.
 func fetchData(ctx context.Context) (CoinData, error) {
 	uri := "https://pro-api.coinmarketcap.com/v1/cryptocurrency/listings/latest"
 
-	client := &http.Client{}
-
-	// initiate http GET request againest the url
-	req, err := http.NewRequest("GET", uri, nil)
-	if err != nil {
-		fmt.Printf("Error creating HTTP request: %v", err)
+	// Check context before making a request
+	if err := ctx.Err(); err != nil {
+		return CoinData{}, err
 	}
 
-	// set Query Parameters and HTTP Headers
+	req, err := http.NewRequest("GET", uri, nil)
+	if err != nil {
+		return CoinData{}, fmt.Errorf("Error creating HTTP request: %v", err)
+	}
+
 	q := url.Values{}
 	q.Add("start", "1")
 	q.Add("limit", "1")
@@ -47,10 +53,10 @@ func fetchData(ctx context.Context) (CoinData, error) {
 	req.Header.Add("X-CMC_PRO_API_KEY", os.Getenv("COIN_MARKET_CAP_TOKEN"))
 	req.URL.RawQuery = q.Encode()
 
-	// sending the HTTP request
-	resp, err := client.Do(req)
+	// Execute HTTP request with context
+	resp, err := httpClient.Do(req.WithContext(ctx))
 	if err != nil {
-		fmt.Printf("Error sending request to CoinMarketCap %v", err)
+		return CoinData{}, fmt.Errorf("Error sending request to CoinMarketCap %v", err)
 	}
 
 	respBody, err := io.ReadAll(resp.Body)
@@ -64,45 +70,44 @@ func fetchData(ctx context.Context) (CoinData, error) {
 		return CoinData{}, fmt.Errorf("Error unmarshaling JSON from CoinMarketCap: %w", err)
 	}
 
-	if err := ctx.Err(); err != nil {
-		return CoinData{}, err
-	}
 	return coinData, nil
 }
 
+// fetchBinanceData retrieves data from Binance API.
 func fetchBinanceData(ctx context.Context) (BinanceData, error) {
 	uri := "https://api.binance.com/api/v3/ticker/price?symbol=BTCUSDT"
 
-	client := &http.Client{}
+	// Check context before making a request
+	if err := ctx.Err(); err != nil {
+		return BinanceData{}, err
+	}
 
 	req, err := http.NewRequest("GET", uri, nil)
 	if err != nil {
-		fmt.Printf("Error creating HTTP request: %v", err)
-
+		return BinanceData{}, fmt.Errorf("Error creating HTTP request: %w", err)
 	}
-	resp, err := client.Do(req)
-	if err != nil {
-		fmt.Printf("Error sending HTTP request to BinanceAPI: %v", err)
 
+	// Execute HTTP request with context
+	resp, err := httpClient.Do(req.WithContext(ctx))
+	if err != nil {
+		return BinanceData{}, fmt.Errorf("Error sending HTTP request to BinanceAPI: %w", err)
 	}
 
 	respBody, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return BinanceData{}, fmt.Errorf("error reading response body: %w", err)
 	}
+
 	var coinData BinanceData
 	err = json.Unmarshal(respBody, &coinData)
 	if err != nil {
-		fmt.Printf("Error unmarshalling JSON from BinanceAPI: %v", err)
-
+		return BinanceData{}, fmt.Errorf("Error unmarshalling JSON from BinanceAPI: %w", err)
 	}
 
-	if err := ctx.Err(); err != nil {
-		return BinanceData{}, err
-	}
 	return coinData, nil
 }
 
+// fetchAndWriteDataToCSV fetches data and writes it to a CSV file.
 func fetchAndWriteDataToCSV(ctx context.Context, cancel context.CancelFunc) {
 	var wg sync.WaitGroup
 
@@ -149,9 +154,11 @@ func fetchAndWriteDataToCSV(ctx context.Context, cancel context.CancelFunc) {
 
 	if err := writeDataToCSV(coinData, binanceData, "btc_prices.csv"); err != nil {
 		fmt.Println("Error writing data to CSV:", err)
+		return
 	}
 }
 
+// writeDataToCSV writes the given data to a CSV file.
 func writeDataToCSV(data CoinData, binData BinanceData, filename string) error {
 	file, err := os.OpenFile(filename, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 	if err != nil {
@@ -163,52 +170,53 @@ func writeDataToCSV(data CoinData, binData BinanceData, filename string) error {
 	writer := csv.NewWriter(file)
 	defer writer.Flush()
 
-	// Adding CSV header
 	columnName := []string{"Date", "CoinMarketCap Price", "Binance Price"}
 	fileInfo, err := file.Stat()
 	if err != nil {
-		fmt.Println("Can't open the file", err)
+		return fmt.Errorf("failed to retrieve file statistics for %s: %w", filename, err)
 	}
-	// This will run if the file is not exist or is empty
+
+	// Check if the file is empty and write column names if so
 	isEmpty := fileInfo.Size() == 0
 	if isEmpty {
-		writer.Write(columnName)
-		if err != nil {
-			fmt.Println("Error writing columns: ", err)
+		if err := writer.Write(columnName); err != nil {
+			return fmt.Errorf("error writing columns: %w", err)
 		}
 	}
 
-	// store local time to use it as output of the script and in the CSV
 	t := time.Now()
 	timeNow := t.Format("2006-01-02 3:4:5 pm")
 
+	// Convert Binance price from string to Float to format it
+	binPrice, err := strconv.ParseFloat(binData.Price, 64)
+	if err != nil {
+		return fmt.Errorf("Error parsing Binance Price: %w", err)
+	}
+	formatedPrice := fmt.Sprintf("%.2f", binPrice)
 	for _, btc := range data.Data[0].Quote {
 		price := fmt.Sprintf("%.2f", btc.Price)
-		writer.Write([]string{timeNow, price, binData.Price})
+		if err := writer.Write([]string{timeNow, price, formatedPrice}); err != nil {
+			return fmt.Errorf("error writing data row: %w", err)
+		}
 		fmt.Println("Date:", timeNow, "BTC Price: $", price)
 	}
-
-	fmt.Println("price of binance:", binData.Price)
+	fmt.Println("price of binance:", formatedPrice)
 
 	return nil
 }
 
 func main() {
-	// create a context with cancel func
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGTERM, syscall.SIGINT)
 	defer close(sigCh)
-	// Create a ticker that trigger every 5 minutes
 	ticker := time.NewTicker(5 * time.Minute)
 	defer ticker.Stop()
 
-	// invoke the initial function
 	go fetchAndWriteDataToCSV(ctx, cancel)
 
-	// Run script every 5 minutes
 	for {
 		select {
 		case <-ticker.C:
