@@ -1,14 +1,21 @@
-# CoinMarketCap Bitcoin Price Fetcher
+# CoinMarketCap and Binance Bitcoin Price Fetcher
 
-This Go script allows you to fetch Bitcoin (BTC) prices from CoinMarketCap using an API token provided as the `COIN_MARKET_CAP_TOKEN` environment variable.
+This Go script allows you to fetch Bitcoin (BTC) prices from both CoinMarketCap and Binance. It uses the CoinMarketCap API token provided as the `COIN_MARKET_CAP_TOKEN` environment variable and accesses the Binance API without a token.
 
 ## Prerequisites
 
-Before you can use this script, you need to obtain an API token from CoinMarketCap.
+Before using this script, you need to obtain an API token from CoinMarketCap.
 
 1. Visit the [CoinMarketCap Pro API](https://pro.coinmarketcap.com) website.
 2. Sign up or log in to your account.
 3. Generate an API token by following their documentation.
+
+## Features
+
+- Fetch BTC prices from CoinMarketCap and Binance APIs.
+- Uses context to manage and cancel HTTP requests effectively.
+- Handles OS signals for graceful termination of the script.
+- Saves fetched data to a CSV file for easy tracking.
 
 ## Installation
 
@@ -17,7 +24,7 @@ Before you can use this script, you need to obtain an API token from CoinMarketC
    ```bash
    git clone git@github.com:EmaLinuxawy/btc-price-fetcher.git
    cd btc-price-fetcher
-   ```
+
 2. Build the Go script
 
    ```bash
@@ -37,5 +44,6 @@ Before you can use this script, you need to obtain an API token from CoinMarketC
 ## Example Output
 
 ```bash
-Date: 2023-10-25 05:13 BTC Price: $ 34166.28
+Date: 2023-11-20 9:33:52 pm BTC Price: $ 37564.62
+price of binance: 37536.44
 ```
